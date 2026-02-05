@@ -7,7 +7,7 @@ require('dotenv').config();
 // ============ BOT INFO ============
 const BOT_INFO = {
     name: 'Melodify',
-    version: '1.0.0',
+    version: '1.0.1',
     description: 'Bot musik Discord berkualitas tinggi.',
     owner: { id: '1307489983359357019', username: 'demisz_dc', display: 'Demisz' },
     color: '#5865F2'
@@ -32,21 +32,18 @@ const client = new Client({
 
 // ============ LAVALINK NODES (TOP 3 UPTIME TERBAIK) ============
 const Nodes = [
-    // #1 SERENETIA V4 SSL - 100% Uptime ⭐ RECOMMENDED
     {
         name: 'Serenetia-V4-SSL',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     },
-    // #2 SERENETIA V4 - 100% Uptime
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:80',
         auth: 'https://dsc.gg/ajidevserver',
         secure: false
     },
-    // #3 TECHBYTE - 97.99% Uptime (Backup)
     {
         name: 'TechByte',
         url: 'lavahatry4.techbyte.host:3000',
@@ -66,7 +63,13 @@ const kazagumo = new Kazagumo(
     },
     new Connectors.DiscordJS(client),
     Nodes,
-    { moveOnDisconnect: false, resumable: false, reconnectTries: 3, restTimeout: 15000 }
+    { 
+        moveOnDisconnect: false, 
+        resumable: false, 
+        reconnectTries: 3, 
+        restTimeout: 15000,
+        reconnectInterval: 5
+    }
 );
 
 // ============ HELPER FUNCTIONS ============
@@ -86,14 +89,41 @@ function successEmbed(message) {
     return new EmbedBuilder().setColor(BOT_INFO.color).setDescription(message);
 }
 
-// ============ LAVALINK EVENTS ============
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink ${name} connected!`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink ${name} error:`, error.message));
-kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink ${name} closed: ${code} - ${reason}`));
-kazagumo.shoukaku.on('disconnect', (name, reason) => console.warn(`🔌 Lavalink ${name} disconnected:`, reason));
+// ============ LAVALINK NODE EVENTS ============
+kazagumo.shoukaku.on('ready', (name) => {
+    console.log(`✅ Lavalink ${name} connected!`);
+});
 
-// ============ PLAYER EVENTS ============
+kazagumo.shoukaku.on('error', (name, error) => {
+    console.error(`❌ Lavalink ${name} error:`, error.message);
+});
+
+kazagumo.shoukaku.on('close', (name, code, reason) => {
+    console.warn(`⚠️ Lavalink ${name} closed: ${code} - ${reason}`);
+});
+
+kazagumo.shoukaku.on('disconnect', (name, reason) => {
+    console.warn(`🔌 Lavalink ${name} disconnected:`, reason);
+    
+    const connectedNodes = Array.from(kazagumo.shoukaku.nodes.values()).filter(n => n.state === 2);
+    
+    if (connectedNodes.length === 0) {
+        console.error('❌ ALL NODES DISCONNECTED! Music playback unavailable!');
+    } else {
+        console.log(`✅ Still have ${connectedNodes.length} node(s) connected`);
+    }
+});
+
+// ============ PLAYER EVENTS - IMPROVED ERROR HANDLING ============
+const disconnectTimers = new Map();
+
 kazagumo.on('playerStart', (player, track) => {
+    // Clear disconnect timer jika ada
+    if (disconnectTimers.has(player.guildId)) {
+        clearTimeout(disconnectTimers.get(player.guildId));
+        disconnectTimers.delete(player.guildId);
+    }
+
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;
 
@@ -112,24 +142,99 @@ kazagumo.on('playerStart', (player, track) => {
         .setTimestamp();
 
     channel.send({ embeds: [embed] });
+    console.log(`▶️ Playing: ${track.title} in ${player.guildId}`);
 });
 
 kazagumo.on('playerEmpty', (player) => {
     const channel = client.channels.cache.get(player.textId);
     if (channel) {
         const embed = new EmbedBuilder()
-            .setColor('#ff6b6b')
-            .setDescription('⏹️ Queue finished. Disconnecting...')
+            .setColor('#FFA500')
+            .setDescription('⏸️ Queue finished. Use `!play` to add more songs.\n*Bot will leave in 2 minutes if no songs are added.*')
             .setTimestamp();
         channel.send({ embeds: [embed] });
     }
-    player.destroy();
+    
+    console.log(`⏸️ Queue empty for guild ${player.guildId}, setting disconnect timer...`);
+    
+    // Set timer 2 menit sebelum disconnect
+    const timer = setTimeout(() => {
+        if (player && !player.queue.current && player.queue.length === 0) {
+            console.log(`⏹️ Disconnecting from guild ${player.guildId} due to inactivity`);
+            if (channel) {
+                const embed = new EmbedBuilder()
+                    .setColor('#ff6b6b')
+                    .setDescription('⏹️ Left voice channel due to inactivity.')
+                    .setTimestamp();
+                channel.send({ embeds: [embed] });
+            }
+            player.destroy();
+        }
+        disconnectTimers.delete(player.guildId);
+    }, 120000); // 2 menit
+    
+    disconnectTimers.set(player.guildId, timer);
 });
 
 kazagumo.on('playerError', (player, error) => {
-    console.error('Player error:', error);
+    console.error('❌ Player error:', error);
     const channel = client.channels.cache.get(player.textId);
-    if (channel) channel.send({ embeds: [errorEmbed('Failed to play track. Skipping...')] });
+    
+    if (channel) {
+        const embed = new EmbedBuilder()
+            .setColor('#ff6b6b')
+            .setDescription(`❌ Failed to play track!\n**Error:** ${error.message || 'Unknown error'}\n${player.queue.length > 0 ? '⏭️ Skipping to next track...' : ''}`)
+            .setTimestamp();
+        channel.send({ embeds: [embed] });
+    }
+    
+    // Auto skip ke next track jika ada
+    if (player.queue.length > 0) {
+        console.log(`⏭️ Auto-skipping to next track for guild ${player.guildId}`);
+        setTimeout(() => player.skip(), 1000);
+    }
+});
+
+kazagumo.on('playerResolveError', (player, track, message) => {
+    console.error('❌ Track resolve error:', message);
+    const channel = client.channels.cache.get(player.textId);
+    
+    if (channel) {
+        const embed = new EmbedBuilder()
+            .setColor('#ff6b6b')
+            .setDescription(`❌ Cannot load track: **${track.title}**\n**Reason:** ${message}\n${player.queue.length > 0 ? '⏭️ Playing next track...' : ''}`)
+            .setTimestamp();
+        channel.send({ embeds: [embed] });
+    }
+    
+    if (player.queue.length > 0) {
+        setTimeout(() => player.skip(), 1000);
+    }
+});
+
+kazagumo.on('playerException', (player, data) => {
+    console.error('❌ Player exception:', data);
+    const channel = client.channels.cache.get(player.textId);
+    
+    if (channel) {
+        const embed = new EmbedBuilder()
+            .setColor('#ff6b6b')
+            .setDescription('❌ An error occurred while playing.\n' + (player.queue.length > 0 ? '⏭️ Skipping to next track...' : ''))
+            .setTimestamp();
+        channel.send({ embeds: [embed] });
+    }
+    
+    if (player.queue.length > 0) {
+        setTimeout(() => player.skip(), 1000);
+    }
+});
+
+kazagumo.on('playerDestroy', (player) => {
+    console.log(`🗑️ Player destroyed for guild ${player.guildId}`);
+    if (disconnectTimers.has(player.guildId)) {
+        clearTimeout(disconnectTimers.get(player.guildId));
+        disconnectTimers.delete(player.guildId);
+    }
 });
 
 // ============ BOT READY ============
@@ -137,6 +242,7 @@ client.once('ready', () => {
     console.log('═══════════════════════════════════════');
     console.log(`✅ ${client.user.tag} is online!`);
     console.log(`📊 Serving ${client.guilds.cache.size} servers`);
+    console.log(`👥 ${client.users.cache.size} users`);
     console.log('═══════════════════════════════════════');
     console.log('🎵 Lavalink Nodes: ' + Nodes.length + ' configured (Top 3 Uptime)');
     
@@ -155,13 +261,26 @@ client.on('messageCreate', async (message) => {
     // ==================== PLAY ====================
     if (command === 'play' || command === 'p') {
         if (!message.member.voice.channel) {
-            return message.reply({ embeds: [errorEmbed('Join a voice channel first!')] });
+            return message.reply({ embeds: [errorEmbed('❌ You need to join a voice channel first!')] });
         }
 
         const query = args.join(' ');
         if (!query) {
-            return message.reply({ embeds: [errorEmbed('Please provide a song name or URL!\n`!play <song name/url>`')] });
+            return message.reply({ embeds: [errorEmbed('❌ Please provide a song name or URL!\n**Usage:** `!play <song name/url>`')] });
         }
+
+        // Check if any nodes are connected
+        const connectedNodes = Array.from(kazagumo.shoukaku.nodes.values()).filter(n => n.state === 2);
+        
+        if (connectedNodes.length === 0) {
+            return message.reply({ 
+                embeds: [errorEmbed('❌ No Lavalink nodes available!\nPlease try again in a moment or contact bot owner.')] 
+            });
+        }
+
+        const loadingMsg = await message.channel.send({ 
+            embeds: [new EmbedBuilder().setColor(BOT_INFO.color).setDescription('🔍 Searching...')] 
+        });
 
         try {
             let player = kazagumo.players.get(message.guild.id);
@@ -175,41 +294,60 @@ client.on('messageCreate', async (message) => {
                     deaf: true,
                     shardId: message.guild.shardId
                 });
+                console.log(`🎵 Created player for guild ${message.guild.id}`);
             }
 
             const result = await kazagumo.search(query, { requester: message.author });
 
             if (!result || !result.tracks.length) {
-                return message.reply({ embeds: [errorEmbed('No results found!')] });
+                await loadingMsg.edit({ embeds: [errorEmbed('❌ No results found!')] });
+                return;
             }
 
             if (result.type === 'PLAYLIST') {
                 for (const track of result.tracks) player.queue.add(track);
-                message.channel.send({ embeds: [new EmbedBuilder().setColor(BOT_INFO.color).setDescription(`📃 Added **${result.tracks.length}** tracks from **${result.playlistName}**`)] });
+                await loadingMsg.edit({ 
+                    embeds: [new EmbedBuilder()
+                        .setColor(BOT_INFO.color)
+                        .setDescription(`📃 Added **${result.tracks.length}** tracks from **${result.playlistName}**`)] 
+                });
             } else {
                 player.queue.add(result.tracks[0]);
-                message.channel.send({ embeds: [new EmbedBuilder().setColor(BOT_INFO.color).setDescription(`✅ Added to queue: **[${result.tracks[0].title}](${result.tracks[0].uri})**`)] });
+                await loadingMsg.edit({ 
+                    embeds: [new EmbedBuilder()
+                        .setColor(BOT_INFO.color)
+                        .setDescription(`✅ Added to queue: **[${result.tracks[0].title}](${result.tracks[0].uri})**`)] 
+                });
             }
 
-            if (!player.playing && !player.paused) player.play();
+            if (!player.playing && !player.paused) {
+                player.play();
+                console.log(`▶️ Starting playback for guild ${message.guild.id}`);
+            }
         } catch (error) {
             console.error('Play error:', error);
-            message.reply({ embeds: [errorEmbed('Failed to play. Please try again.')] });
+            await loadingMsg.edit({ 
+                embeds: [errorEmbed(`❌ Failed to play!\n**Error:** ${error.message}\n**Connected nodes:** ${connectedNodes.length}`)] 
+            });
         }
     }
 
     // ==================== SKIP ====================
     if (command === 'skip' || command === 's') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
+        
+        const skipped = player.queue.current;
         player.skip();
-        message.channel.send({ embeds: [successEmbed('⏭️ Skipped current track')] });
+        message.channel.send({ 
+            embeds: [successEmbed(`⏭️ Skipped: **${skipped?.title || 'Current track'}**`)] 
+        });
     }
 
     // ==================== STOP ====================
     if (command === 'stop') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
         player.destroy();
         message.channel.send({ embeds: [successEmbed('⏹️ Stopped and left voice channel')] });
     }
@@ -217,7 +355,8 @@ client.on('messageCreate', async (message) => {
     // ==================== PAUSE ====================
     if (command === 'pause') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
+        if (player.paused) return message.reply({ embeds: [errorEmbed('❌ Already paused!')] });
         player.pause(true);
         message.channel.send({ embeds: [successEmbed('⏸️ Paused')] });
     }
@@ -225,7 +364,8 @@ client.on('messageCreate', async (message) => {
     // ==================== RESUME ====================
     if (command === 'resume') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
+        if (!player.paused) return message.reply({ embeds: [errorEmbed('❌ Not paused!')] });
         player.pause(false);
         message.channel.send({ embeds: [successEmbed('▶️ Resumed')] });
     }
@@ -233,11 +373,11 @@ client.on('messageCreate', async (message) => {
     // ==================== QUEUE ====================
     if (command === 'queue' || command === 'q') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         const queue = player.queue;
         const current = player.queue.current;
-        if (!current) return message.reply({ embeds: [errorEmbed('Queue is empty!')] });
+        if (!current) return message.reply({ embeds: [errorEmbed('❌ Queue is empty!')] });
 
         let description = `**Now Playing:**\n[${current.title}](${current.uri}) - \`${formatDuration(current.length)}\`\n\n`;
 
@@ -255,7 +395,7 @@ client.on('messageCreate', async (message) => {
             .setColor(BOT_INFO.color)
             .setAuthor({ name: `Queue • ${message.guild.name}`, iconURL: message.guild.iconURL() })
             .setDescription(description)
-            .setFooter({ text: `${queue.length + 1} tracks • Volume: ${player.volume}%` });
+            .setFooter({ text: `${queue.length + 1} track(s) • Volume: ${player.volume}%` });
 
         message.channel.send({ embeds: [embed] });
     }
@@ -263,7 +403,7 @@ client.on('messageCreate', async (message) => {
     // ==================== NOW PLAYING ====================
     if (command === 'nowplaying' || command === 'np') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player?.queue.current) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player?.queue.current) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         const current = player.queue.current;
         const position = player.position;
@@ -292,11 +432,11 @@ client.on('messageCreate', async (message) => {
     // ==================== LOOP ====================
     if (command === 'loop') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         const mode = args[0]?.toLowerCase();
         if (!mode || !['track', 'queue', 'off'].includes(mode)) {
-            return message.reply({ embeds: [errorEmbed('Usage: `!loop <track/queue/off>`')] });
+            return message.reply({ embeds: [errorEmbed('❌ Usage: `!loop <track/queue/off>`')] });
         }
 
         player.setLoop(mode === 'off' ? 'none' : mode);
@@ -307,13 +447,13 @@ client.on('messageCreate', async (message) => {
     // ==================== VOLUME ====================
     if (command === 'volume' || command === 'vol') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         if (!args[0]) return message.channel.send({ embeds: [successEmbed(`🔊 Current volume: **${player.volume}%**`)] });
 
         const volume = parseInt(args[0]);
         if (isNaN(volume) || volume < 0 || volume > 100) {
-            return message.reply({ embeds: [errorEmbed('Volume must be between 0-100')] });
+            return message.reply({ embeds: [errorEmbed('❌ Volume must be between 0-100')] });
         }
 
         player.setVolume(volume);
@@ -324,10 +464,10 @@ client.on('messageCreate', async (message) => {
     // ==================== SEEK ====================
     if (command === 'seek') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player?.queue.current) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player?.queue.current) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         const time = args[0];
-        if (!time) return message.reply({ embeds: [errorEmbed('Usage: `!seek <1:30>` or `!seek <90>`')] });
+        if (!time) return message.reply({ embeds: [errorEmbed('❌ Usage: `!seek <1:30>` or `!seek <90>`')] });
 
         let ms;
         if (time.includes(':')) {
@@ -338,7 +478,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (isNaN(ms) || ms < 0 || ms > player.queue.current.length) {
-            return message.reply({ embeds: [errorEmbed('Invalid time!')] });
+            return message.reply({ embeds: [errorEmbed('❌ Invalid time!')] });
         }
 
         player.seek(ms);
@@ -348,7 +488,7 @@ client.on('messageCreate', async (message) => {
     // ==================== 8D ====================
     if (command === '8d') {
         const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
+        if (!player) return message.reply({ embeds: [errorEmbed('❌ Nothing is playing!')] });
 
         const isEnabled = player.rotation?.rotationHz;
         if (isEnabled) {
@@ -375,9 +515,9 @@ client.on('messageCreate', async (message) => {
 
         const embed = new EmbedBuilder()
             .setColor(BOT_INFO.color)
-            .setTitle('🌐 Lavalink Nodes (Top 3 Uptime)')
+            .setTitle('🌐 Lavalink Nodes')
             .setDescription(description || 'No nodes available')
-            .setFooter({ text: `Total: ${nodes.size} nodes • Serenetia 100% Uptime ⭐` })
+            .setFooter({ text: `Total: ${nodes.size} nodes • Top 3 Uptime (97-100%)` })
             .setTimestamp();
 
         message.channel.send({ embeds: [embed] });
@@ -390,7 +530,7 @@ client.on('messageCreate', async (message) => {
             .setAuthor({ name: BOT_INFO.name, iconURL: client.user.displayAvatarURL() })
             .setDescription(BOT_INFO.description)
             .addFields(
-                { name: '🎵 Music', value: '`!play` `!skip` `!stop` `!pause` `!resume`', inline: false },
+                { name: '🎵 Music', value: '`!play <song>` `!skip` `!stop` `!pause` `!resume`', inline: false },
                 { name: '📋 Queue', value: '`!queue` `!nowplaying` `!loop <track/queue/off>`', inline: false },
                 { name: '🎛️ Control', value: '`!volume <0-100>` `!seek <1:30>` `!8d`', inline: false },
                 { name: 'ℹ️ Info', value: '`!info` `!nodes` `!ping`', inline: false }
@@ -437,15 +577,28 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============ ERROR HANDLERS ============
-process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
-process.on('uncaughtException', (error) => console.error('Uncaught Exception:', error));
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+});
 
 // ============ LOGIN ============
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
-    console.error('❌ DISCORD_TOKEN not found!');
+    console.error('❌ DISCORD_TOKEN not found in environment variables!');
+    console.error('Please set DISCORD_TOKEN in Railway Variables');
     process.exit(1);
 }
 
-console.log('🔄 Logging in...');
-client.login(token);
+console.log('🔄 Logging in to Discord...');
+console.log('🎵 Configuring ' + Nodes.length + ' Lavalink nodes (Top 3 Uptime)...');
+
+client.login(token)
+    .then(() => console.log('✅ Login successful!'))
+    .catch((error) => {
+        console.error('❌ Login failed:', error.message);
+        process.exit(1);
+    });
