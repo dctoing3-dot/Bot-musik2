@@ -9,21 +9,15 @@ const BOT_INFO = {
     name: 'Melodify',
     version: '1.0.0',
     description: 'Bot musik Discord berkualitas tinggi.',
-    owner: {
-        id: '1307489983359357019',
-        username: 'demisz_dc',
-        display: 'Demisz'
-    },
+    owner: { id: '1307489983359357019', username: 'demisz_dc', display: 'Demisz' },
     color: '#5865F2'
 };
 
-// ============ EXPRESS SERVER (UNTUK RAILWAY) ============
+// ============ EXPRESS SERVER ============
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.get('/', (req, res) => res.status(200).send('🎵 Melodify Bot is running!'));
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime() }));
-
 app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
 
 // ============ DISCORD CLIENT ============
@@ -36,36 +30,27 @@ const client = new Client({
     ]
 });
 
-// ============ LAVALINK NODES ============
+// ============ LAVALINK NODES (TOP 3 UPTIME TERBAIK) ============
 const Nodes = [
+    // #1 SERENETIA V4 SSL - 100% Uptime ⭐ RECOMMENDED
     {
         name: 'Serenetia-V4-SSL',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     },
+    // #2 SERENETIA V4 - 100% Uptime
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:80',
         auth: 'https://dsc.gg/ajidevserver',
         secure: false
     },
-    {
-        name: 'Jirayu-SSL',
-        url: 'lavalink.jirayu.net:443',
-        auth: 'youshallnotpass',
-        secure: true
-    },
+    // #3 TECHBYTE - 97.99% Uptime (Backup)
     {
         name: 'TechByte',
         url: 'lavahatry4.techbyte.host:3000',
         auth: 'naig.is-a.dev',
-        secure: false
-    },
-    {
-        name: 'JMLite-V4',
-        url: '46.202.82.147:1026',
-        auth: 'jmlitev4',
         secure: false
     }
 ];
@@ -81,13 +66,7 @@ const kazagumo = new Kazagumo(
     },
     new Connectors.DiscordJS(client),
     Nodes,
-    { 
-        moveOnDisconnect: false, 
-        resumable: false, 
-        reconnectTries: 5, 
-        restTimeout: 15000,
-        reconnectInterval: 5
-    }
+    { moveOnDisconnect: false, resumable: false, reconnectTries: 3, restTimeout: 15000 }
 );
 
 // ============ HELPER FUNCTIONS ============
@@ -158,27 +137,20 @@ client.once('ready', () => {
     console.log('═══════════════════════════════════════');
     console.log(`✅ ${client.user.tag} is online!`);
     console.log(`📊 Serving ${client.guilds.cache.size} servers`);
-    console.log(`👥 ${client.users.cache.size} users`);
     console.log('═══════════════════════════════════════');
-    console.log('🎵 Lavalink Nodes: ' + Nodes.length + ' configured');
+    console.log('🎵 Lavalink Nodes: ' + Nodes.length + ' configured (Top 3 Uptime)');
     
     client.user.setActivity('!help • Music Bot', { type: 2 });
 });
 
-// ============ ERROR HANDLERS ============
 client.on('error', (error) => console.error('Client error:', error));
-client.on('shardError', (error) => console.error('Shard error:', error));
 
 // ============ MESSAGE COMMANDS ============
 client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    if (!message.content.startsWith('!')) return;
+    if (message.author.bot || !message.content.startsWith('!')) return;
 
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
-
-    const validCommands = ['play', 'p', 'skip', 's', 'stop', 'pause', 'resume', 'queue', 'q', 'nowplaying', 'np', 'loop', 'volume', 'vol', 'seek', '8d', 'help', 'info', 'ping', 'nodes'];
-    if (!validCommands.includes(command)) return;
 
     // ==================== PLAY ====================
     if (command === 'play' || command === 'p') {
@@ -213,22 +185,16 @@ client.on('messageCreate', async (message) => {
 
             if (result.type === 'PLAYLIST') {
                 for (const track of result.tracks) player.queue.add(track);
-                const embed = new EmbedBuilder()
-                    .setColor(BOT_INFO.color)
-                    .setDescription(`📃 Added **${result.tracks.length}** tracks from **${result.playlistName}**`);
-                message.channel.send({ embeds: [embed] });
+                message.channel.send({ embeds: [new EmbedBuilder().setColor(BOT_INFO.color).setDescription(`📃 Added **${result.tracks.length}** tracks from **${result.playlistName}**`)] });
             } else {
                 player.queue.add(result.tracks[0]);
-                const embed = new EmbedBuilder()
-                    .setColor(BOT_INFO.color)
-                    .setDescription(`✅ Added to queue: **[${result.tracks[0].title}](${result.tracks[0].uri})**`);
-                message.channel.send({ embeds: [embed] });
+                message.channel.send({ embeds: [new EmbedBuilder().setColor(BOT_INFO.color).setDescription(`✅ Added to queue: **[${result.tracks[0].title}](${result.tracks[0].uri})**`)] });
             }
 
             if (!player.playing && !player.paused) player.play();
         } catch (error) {
             console.error('Play error:', error);
-            message.reply({ embeds: [errorEmbed('Failed to play the track. Please try again.')] });
+            message.reply({ embeds: [errorEmbed('Failed to play. Please try again.')] });
         }
     }
 
@@ -271,7 +237,6 @@ client.on('messageCreate', async (message) => {
 
         const queue = player.queue;
         const current = player.queue.current;
-
         if (!current) return message.reply({ embeds: [errorEmbed('Queue is empty!')] });
 
         let description = `**Now Playing:**\n[${current.title}](${current.uri}) - \`${formatDuration(current.length)}\`\n\n`;
@@ -344,9 +309,7 @@ client.on('messageCreate', async (message) => {
         const player = kazagumo.players.get(message.guild.id);
         if (!player) return message.reply({ embeds: [errorEmbed('Nothing is playing!')] });
 
-        if (!args[0]) {
-            return message.channel.send({ embeds: [successEmbed(`🔊 Current volume: **${player.volume}%**`)] });
-        }
+        if (!args[0]) return message.channel.send({ embeds: [successEmbed(`🔊 Current volume: **${player.volume}%**`)] });
 
         const volume = parseInt(args[0]);
         if (isNaN(volume) || volume < 0 || volume > 100) {
@@ -412,9 +375,9 @@ client.on('messageCreate', async (message) => {
 
         const embed = new EmbedBuilder()
             .setColor(BOT_INFO.color)
-            .setTitle('🌐 Lavalink Nodes')
+            .setTitle('🌐 Lavalink Nodes (Top 3 Uptime)')
             .setDescription(description || 'No nodes available')
-            .setFooter({ text: `Total: ${nodes.size} nodes` })
+            .setFooter({ text: `Total: ${nodes.size} nodes • Serenetia 100% Uptime ⭐` })
             .setTimestamp();
 
         message.channel.send({ embeds: [embed] });
@@ -427,10 +390,10 @@ client.on('messageCreate', async (message) => {
             .setAuthor({ name: BOT_INFO.name, iconURL: client.user.displayAvatarURL() })
             .setDescription(BOT_INFO.description)
             .addFields(
-                { name: '🎵 Music', value: '```\n!play <song>  - Play a song\n!skip         - Skip current\n!stop         - Stop & leave\n!pause        - Pause\n!resume       - Resume\n```', inline: false },
-                { name: '📋 Queue', value: '```\n!queue        - View queue\n!nowplaying   - Current song\n!loop <mode>  - track/queue/off\n```', inline: false },
-                { name: '🎛️ Control', value: '```\n!volume <0-100> - Set volume\n!seek <1:30>    - Seek to time\n!8d             - Toggle 8D\n```', inline: false },
-                { name: 'ℹ️ Info', value: '```\n!info         - Bot info\n!nodes        - Node status\n!ping         - Check latency\n```', inline: false }
+                { name: '🎵 Music', value: '`!play` `!skip` `!stop` `!pause` `!resume`', inline: false },
+                { name: '📋 Queue', value: '`!queue` `!nowplaying` `!loop <track/queue/off>`', inline: false },
+                { name: '🎛️ Control', value: '`!volume <0-100>` `!seek <1:30>` `!8d`', inline: false },
+                { name: 'ℹ️ Info', value: '`!info` `!nodes` `!ping`', inline: false }
             )
             .setFooter({ text: `Made by ${BOT_INFO.owner.display} • v${BOT_INFO.version}` })
             .setTimestamp();
@@ -473,25 +436,16 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// ============ GLOBAL ERROR HANDLERS ============
+// ============ ERROR HANDLERS ============
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 process.on('uncaughtException', (error) => console.error('Uncaught Exception:', error));
 
 // ============ LOGIN ============
 const token = process.env.DISCORD_TOKEN;
-
 if (!token) {
-    console.error('❌ DISCORD_TOKEN not found in environment!');
-    console.error('Please set DISCORD_TOKEN in Railway Variables');
+    console.error('❌ DISCORD_TOKEN not found!');
     process.exit(1);
 }
 
-console.log('🔄 Logging in to Discord...');
-console.log('🎵 Configuring ' + Nodes.length + ' Lavalink nodes...');
-
-client.login(token)
-    .then(() => console.log('✅ Login successful!'))
-    .catch((error) => {
-        console.error('❌ Login failed:', error.message);
-        process.exit(1);
-    });
+console.log('🔄 Logging in...');
+client.login(token);
