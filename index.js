@@ -20,24 +20,69 @@ const client = new Client({
     ]
 });
 
-// ============ MULTIPLE LAVALINK NODES ============
+// ============ LAVALINK NODES (ALL ONLINE - BEST SELECTION) ============
 const Nodes = [
+    // ⭐ #1 - SerenetiaV4 SSL (100% Uptime!) - BEST CHOICE
     {
-        name: 'Serenetia',
+        name: 'SerenetiaV4',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     },
+    // #2 - Serenetia Combined (84.49% Uptime)
+    {
+        name: 'SerenetiaCombined',
+        url: 'lavalink.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
+    },
+    // #3 - AjieBlogs V4 SSL
+    {
+        name: 'AjieBlogsV4',
+        url: 'lava-v4.ajieblogs.eu.org:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
+    },
+    // #4 - Muzykant V4 SSL
+    {
+        name: 'MuzykantV4',
+        url: 'lavalink_v4.muzykant.xyz:443',
+        auth: 'https://discord.gg/v6sdrD9kPh',
+        secure: true
+    },
+    // #5 - Aiko Project (Non-SSL) - Has many plugins!
+    {
+        name: 'AikoProject',
+        url: 'lavalink.aiko-project.xyz:2333',
+        auth: 'Rikka',
+        secure: false
+    },
+    // #6 - Millohost IP (Non-SSL)
+    {
+        name: 'Millohost1',
+        url: '107.150.58.122:4006',
+        auth: 'https://discord.gg/mjS5J2K3ep',
+        secure: false
+    },
+    // #7 - Millohost IP 2 (Non-SSL)
+    {
+        name: 'Millohost2',
+        url: '5.39.63.207:8893',
+        auth: 'https://discord.gg/mjS5J2K3ep',
+        secure: false
+    },
+    // #8 - Your Personal Render Server (BACKUP)
     {
         name: 'MyRender',
         url: process.env.LAVALINK_HOST || 'lavalink-sf9r.onrender.com:443',
         auth: process.env.LAVALINK_PASSWORD || 'your_super_strong_password_here',
         secure: true
     },
+    // #9 - SerenetiaV3 SSL (97.97% Uptime) - Fallback
     {
-        name: 'Nevulink',
-        url: 'lavalink.nevuhost.com:443',
-        auth: 'nevulink',
+        name: 'SerenetiaV3',
+        url: 'lavalinkv3.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
         secure: true
     }
 ];
@@ -54,10 +99,11 @@ const kazagumo = new Kazagumo(
     new Connectors.DiscordJS(client),
     Nodes,
     {
-        moveOnDisconnect: false,
-        resumable: false,
-        reconnectTries: 2,
-        reconnectInterval: 10000,
+        moveOnDisconnect: true,
+        resumable: true,
+        resumableTimeout: 30,
+        reconnectTries: 5,
+        reconnectInterval: 5000,
         restTimeout: 60000
     }
 );
@@ -68,7 +114,9 @@ let preferredNode = 'auto';
 // ============ LAVALINK EVENTS ============
 kazagumo.shoukaku.on('ready', (name) => console.log(`✅ [${name}] Connected!`));
 kazagumo.shoukaku.on('error', (name, err) => console.log(`❌ [${name}] Error: ${err.message}`));
+kazagumo.shoukaku.on('close', (name, code, reason) => console.log(`🔴 [${name}] Closed - Code: ${code}`));
 kazagumo.shoukaku.on('disconnect', (name) => console.log(`⚠️ [${name}] Disconnected`));
+kazagumo.shoukaku.on('reconnecting', (name) => console.log(`🔄 [${name}] Reconnecting...`));
 
 // ============ PLAYER EVENTS ============
 kazagumo.on('playerStart', (player, track) => {
@@ -80,45 +128,68 @@ kazagumo.on('playerStart', (player, track) => {
 
 kazagumo.on('playerEmpty', (player) => {
     const ch = client.channels.cache.get(player.textId);
-    if (ch) ch.send('⏹️ Queue selesai! Leaving...');
+    if (ch) ch.send('⏹️ Queue selesai!');
     player.destroy();
 });
 
 kazagumo.on('playerError', (player, err) => {
     console.log('Player error:', err);
     const ch = client.channels.cache.get(player.textId);
-    if (ch) ch.send('❌ Error playing, skipping...');
+    if (ch) ch.send('❌ Error, skipping...');
 });
 
 // ============ BOT READY ============
-client.on('ready', () => {
-    console.log('═'.repeat(40));
+client.on('ready', async () => {
+    console.log('═'.repeat(50));
     console.log(`🤖 ${client.user.tag} online!`);
     console.log(`📊 ${client.guilds.cache.size} servers`);
     console.log(`🎵 Nodes: ${Nodes.map(n => n.name).join(', ')}`);
-    console.log('═'.repeat(40));
+    console.log('═'.repeat(50));
+    
+    // Wait for nodes to connect
+    console.log('⏳ Waiting for nodes to connect...');
+    await new Promise(r => setTimeout(r, 8000));
+    
+    const nodes = getNodeStatus();
+    const online = nodes.filter(n => n.online);
+    console.log(`✅ ${online.length}/${nodes.length} nodes connected!`);
+    online.forEach(n => console.log(`   🟢 ${n.name}`));
+    
     client.user.setActivity('!help | Music Bot', { type: 2 });
 });
 
 // ============ HELPERS ============
-function getOnlineNodes() {
-    const online = [];
+function getNodeStatus() {
+    const result = [];
     kazagumo.shoukaku.nodes.forEach((node, name) => {
-        if (node.state === 2) online.push({ name, node });
+        const states = ['🟡 Connecting', '🟡 Nearly', '🟢 Online', '🟡 Reconnecting', '🔴 Disconnecting', '🔴 Offline'];
+        result.push({
+            name,
+            status: states[node.state] || '❓ Unknown',
+            online: node.state === 2,
+            stats: node.stats
+        });
     });
-    return online;
+    return result;
 }
 
-function getBestNode() {
-    const online = getOnlineNodes();
-    if (online.length === 0) return null;
+function getOnlineNode() {
+    const nodes = getNodeStatus();
     
     if (preferredNode !== 'auto') {
-        const preferred = online.find(n => n.name.toLowerCase() === preferredNode.toLowerCase());
+        const preferred = nodes.find(n => n.name.toLowerCase() === preferredNode.toLowerCase() && n.online);
         if (preferred) return preferred.name;
     }
     
-    return online[0].name;
+    // Priority order: SerenetiaV4 > SerenetiaCombined > others
+    const priority = ['SerenetiaV4', 'SerenetiaCombined', 'AjieBlogsV4', 'MuzykantV4', 'AikoProject'];
+    for (const name of priority) {
+        const node = nodes.find(n => n.name === name && n.online);
+        if (node) return node.name;
+    }
+    
+    const online = nodes.find(n => n.online);
+    return online ? online.name : null;
 }
 
 // ============ COMMANDS ============
@@ -135,23 +206,21 @@ client.on('messageCreate', async (msg) => {
 
     // ==================== NODES ====================
     if (cmd === 'nodes') {
-        let text = '**🎵 Lavalink Nodes:**\n\n';
+        const nodes = getNodeStatus();
+        let text = '**🎵 Lavalink Nodes Status:**\n\n';
         
-        kazagumo.shoukaku.nodes.forEach((node, name) => {
-            const states = ['🟡 Connecting', '🟡 Nearly', '🟢 Online', '🟡 Reconnecting', '🔴 Disconnecting', '🔴 Offline'];
-            const status = states[node.state] || '❓ Unknown';
-            const isPreferred = preferredNode === name.toLowerCase() ? ' ⭐' : '';
-            
-            text += `**${name}${isPreferred}:** ${status}\n`;
-            
-            if (node.stats) {
-                text += `└ Players: ${node.stats.players} | Mem: ${Math.round(node.stats.memory.used/1024/1024)}MB\n`;
+        nodes.forEach(n => {
+            const star = preferredNode.toLowerCase() === n.name.toLowerCase() ? ' ⭐' : '';
+            text += `**${n.name}${star}:** ${n.status}\n`;
+            if (n.stats && n.online) {
+                text += `└ Players: ${n.stats.players || 0} | Mem: ${Math.round((n.stats.memory?.used || 0)/1024/1024)}MB\n`;
             }
-            text += '\n';
         });
         
-        text += `**Current Mode:** \`${preferredNode}\`\n`;
-        text += `\n💡 Use \`!setnode <name/auto>\` to switch`;
+        const online = nodes.filter(n => n.online).length;
+        text += `\n**Online:** ${online}/${nodes.length} nodes`;
+        text += `\n**Mode:** \`${preferredNode}\``;
+        text += `\n💡 \`!setnode <name/auto>\` to switch`;
         
         return msg.reply(text);
     }
@@ -161,40 +230,37 @@ client.on('messageCreate', async (msg) => {
         const nodeName = args[0]?.toLowerCase();
         
         if (!nodeName) {
-            return msg.reply(`
-**📡 Available Nodes:**
-• \`serenetia\` - Public (Stable)
-• \`myrender\` - Your Render server
-• \`nevulink\` - Public backup
-• \`auto\` - Auto select best
-
-**Current:** \`${preferredNode}\`
-**Usage:** \`!setnode serenetia\`
-            `);
+            const nodes = getNodeStatus();
+            let text = '**📡 Available Nodes:**\n\n';
+            nodes.forEach(n => {
+                text += `• \`${n.name.toLowerCase()}\` - ${n.status}\n`;
+            });
+            text += `• \`auto\` - Auto select best\n\n`;
+            text += `**Current:** \`${preferredNode}\`\n`;
+            text += `**Usage:** \`!setnode serenetiav4\``;
+            return msg.reply(text);
         }
         
-        const validNodes = ['serenetia', 'myrender', 'nevulink', 'auto'];
+        const validNodes = [...Nodes.map(n => n.name.toLowerCase()), 'auto'];
         
         if (!validNodes.includes(nodeName)) {
-            return msg.reply(`❌ Node tidak valid!\n\nPilihan: ${validNodes.join(', ')}`);
+            return msg.reply(`❌ Invalid!\n\nAvailable: ${validNodes.join(', ')}`);
         }
         
         preferredNode = nodeName;
         
-        const onlineNodes = getOnlineNodes();
+        const nodes = getNodeStatus();
         const targetOnline = nodeName === 'auto' 
-            ? onlineNodes.length > 0 
-            : onlineNodes.some(n => n.name.toLowerCase() === nodeName);
+            ? nodes.some(n => n.online)
+            : nodes.find(n => n.name.toLowerCase() === nodeName)?.online;
         
-        const statusIcon = targetOnline ? '🟢' : '🔴';
-        
-        return msg.reply(`✅ Node diubah ke: **${nodeName}** ${statusIcon}\n\n${targetOnline ? 'Siap digunakan!' : '⚠️ Node ini sedang offline, akan auto-fallback ke node lain.'}`);
+        return msg.reply(`✅ Node: **${nodeName}** ${targetOnline ? '🟢' : '🔴'}\n\n${targetOnline ? 'Ready to play!' : '⚠️ Node offline, will use fallback.'}`);
     }
 
     // ==================== PLAY ====================
     if (cmd === 'play' || cmd === 'p') {
         if (!msg.member.voice.channel) {
-            return msg.reply('❌ Masuk voice channel dulu!');
+            return msg.reply('❌ Join voice channel dulu!');
         }
 
         const query = args.join(' ');
@@ -202,9 +268,18 @@ client.on('messageCreate', async (msg) => {
             return msg.reply('❌ Contoh: `!play never gonna give you up`');
         }
 
-        const bestNode = getBestNode();
-        if (!bestNode) {
-            return msg.reply('❌ Semua Lavalink offline! Coba lagi nanti.\n\nCek status: `!nodes`');
+        let activeNode = getOnlineNode();
+        
+        // Retry logic if no node available
+        if (!activeNode) {
+            const waitMsg = await msg.reply('⏳ Connecting to nodes...');
+            await new Promise(r => setTimeout(r, 5000));
+            activeNode = getOnlineNode();
+            
+            if (!activeNode) {
+                return waitMsg.edit('❌ Semua node offline!\n\n💡 Tips:\n• `!nodes` - Cek status\n• Tunggu 30 detik, coba lagi\n• `!setnode serenetiav4`');
+            }
+            await waitMsg.delete().catch(() => {});
         }
 
         try {
@@ -220,17 +295,17 @@ client.on('messageCreate', async (msg) => {
                 });
             }
 
-            const searchMsg = await msg.reply(`🔍 Mencari: **${query}**...\n📡 Node: ${bestNode}`);
+            const searchMsg = await msg.reply(`🔍 Searching: **${query}**\n📡 Node: ${activeNode}`);
             
             const result = await kazagumo.search(query, { requester: msg.author });
             
             if (!result?.tracks?.length) {
-                return searchMsg.edit('❌ Tidak ditemukan!');
+                return searchMsg.edit('❌ Not found!');
             }
 
             if (result.type === 'PLAYLIST') {
                 for (const track of result.tracks) player.queue.add(track);
-                searchMsg.edit(`📃 Added **${result.tracks.length}** tracks dari **${result.playlistName}**`);
+                searchMsg.edit(`📃 Added **${result.tracks.length}** tracks from **${result.playlistName}**`);
             } else {
                 const track = result.tracks[0];
                 player.queue.add(track);
@@ -239,7 +314,7 @@ client.on('messageCreate', async (msg) => {
                     player.play();
                     searchMsg.edit(`✅ Playing: **${track.title}**`);
                 } else {
-                    searchMsg.edit(`➕ Added: **${track.title}** (Queue: #${player.queue.length})`);
+                    searchMsg.edit(`➕ Added: **${track.title}** (#${player.queue.length})`);
                 }
             }
 
@@ -247,7 +322,7 @@ client.on('messageCreate', async (msg) => {
 
         } catch (error) {
             console.error('Play error:', error);
-            msg.reply(`❌ Error: ${error.message}\n\n💡 Coba \`!setnode serenetia\` lalu coba lagi.`);
+            msg.reply(`❌ Error: ${error.message}\n\n💡 Coba:\n• \`!setnode serenetiav4\`\n• \`!nodes\` cek status`);
         }
     }
 
@@ -280,13 +355,13 @@ client.on('messageCreate', async (msg) => {
     // ==================== QUEUE ====================
     if (cmd === 'queue' || cmd === 'q') {
         const player = kazagumo.players.get(msg.guild.id);
-        if (!player?.queue.current) return msg.reply('❌ Queue kosong!');
+        if (!player?.queue.current) return msg.reply('❌ Queue empty!');
 
         let text = `🎵 **Now:** ${player.queue.current.title}\n`;
         if (player.queue.length > 0) {
-            text += `\n📋 **Up Next (${player.queue.length}):**\n`;
+            text += `\n📋 **Next (${player.queue.length}):**\n`;
             player.queue.slice(0, 5).forEach((t, i) => text += `${i+1}. ${t.title}\n`);
-            if (player.queue.length > 5) text += `...dan ${player.queue.length - 5} lagi`;
+            if (player.queue.length > 5) text += `...+${player.queue.length - 5} more`;
         }
         msg.reply(text);
     }
@@ -295,7 +370,6 @@ client.on('messageCreate', async (msg) => {
     if (cmd === 'np' || cmd === 'nowplaying') {
         const player = kazagumo.players.get(msg.guild.id);
         if (!player?.queue.current) return msg.reply('❌ Nothing playing!');
-        
         const t = player.queue.current;
         msg.reply(`🎵 **${t.title}**\n👤 ${t.author}\n🔗 ${t.uri}`);
     }
@@ -304,12 +378,9 @@ client.on('messageCreate', async (msg) => {
     if (cmd === 'vol' || cmd === 'volume') {
         const player = kazagumo.players.get(msg.guild.id);
         if (!player) return msg.reply('❌ Nothing playing!');
-
         if (!args[0]) return msg.reply(`🔊 Volume: **${player.volume}%**`);
-
         const vol = parseInt(args[0]);
-        if (isNaN(vol) || vol < 0 || vol > 150) return msg.reply('❌ Volume: 0-150');
-
+        if (isNaN(vol) || vol < 0 || vol > 150) return msg.reply('❌ 0-150 only');
         player.setVolume(vol);
         msg.reply(`🔊 Volume: **${vol}%**`);
     }
@@ -326,12 +397,8 @@ client.on('messageCreate', async (msg) => {
     if (cmd === 'loop') {
         const player = kazagumo.players.get(msg.guild.id);
         if (!player) return msg.reply('❌ Nothing playing!');
-
         const mode = args[0]?.toLowerCase();
-        if (!['track', 'queue', 'off'].includes(mode)) {
-            return msg.reply('Usage: `!loop track/queue/off`');
-        }
-
+        if (!['track', 'queue', 'off'].includes(mode)) return msg.reply('Usage: `!loop track/queue/off`');
         player.setLoop(mode === 'off' ? 'none' : mode);
         msg.reply(`🔁 Loop: **${mode}**`);
     }
@@ -339,21 +406,20 @@ client.on('messageCreate', async (msg) => {
     // ==================== HELP ====================
     if (cmd === 'help') {
         msg.reply(`
-**🎵 Music:**
-\`!play <song>\` - Play
+**🎵 Music Commands:**
+\`!play <song>\` - Play music
 \`!stop\` - Stop & leave
-\`!skip\` - Skip
+\`!skip\` - Skip track
 \`!pause\` / \`!resume\`
 \`!queue\` - View queue
 \`!np\` - Now playing
 \`!vol <0-150>\` - Volume
-\`!shuffle\` - Shuffle
-\`!loop track/queue/off\`
+\`!shuffle\` / \`!loop\`
 
 **🔧 System:**
-\`!nodes\` - Lavalink status
+\`!nodes\` - Node status
 \`!setnode <name>\` - Switch node
-\`!ping\` - Ping
+\`!ping\` - Latency
         `);
     }
 });
