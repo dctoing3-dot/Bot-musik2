@@ -37,11 +37,11 @@ const client = new Client({
 });
 
 // ============ LAVALINK NODES ============
-const Nodes = [ 
+const Nodes = [
     {
-        name: 'MyRender',
-        url: 'lavalink-sf9r.onrender.com:443',
-        auth: 'your_super_strong_password_here',
+        name: 'Main',
+        url: 'lavalinkv4.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
         secure: true
     }
 ];
